@@ -1,143 +1,217 @@
-import fs from 'node:fs';
+import type { ESLint, Rule } from 'eslint';
+import type { Dirent } from 'node:fs';
+import appRootPath from 'app-root-path';
+import eslintRuleComposer from 'eslint-rule-composer';
+import fs from 'node:fs/promises';
 import path from 'node:path';
 
-import appRoot from 'app-root-path';
-import type { Rule, AST, SourceCode } from 'eslint';
-import ruleComposer from 'eslint-rule-composer';
-import _ from 'lodash';
-
-interface EslintPlugin {
-  rules: Record<string, Rule.RuleModule>;
-  id: string;
+// See notes in index.d.ts
+type Rule = Rule.RuleModule & { schema: never };
+interface RulePlugin {
+  rules?: Record<string, Rule>;
 }
+type RulePluginModule =
+  | RulePlugin
+  | {
+      default: RulePlugin | { plugin: RulePlugin };
+    };
 
-interface Problem {
-  message: string;
-  messageId: string | undefined;
-  data: object | undefined;
-  loc: AST.SourceLocation;
-  fix: undefined;
-}
-
-interface Metadata {
-  sourceCode: SourceCode;
-  settings?: object;
-  filename: string;
-}
-
-type DisabledRules = Record<string, Rule.RuleModule>;
-
-type Predicate<T> = (problem: Problem, metadata: Metadata) => T;
-
-type MapReports = (
-  rule: Rule.RuleModule,
-  iteratee: Predicate<Problem>,
-) => Rule.RuleModule;
-
-const disabledRules: DisabledRules = {};
-const dirname = appRoot.toString();
-const nodeModules = 'node_modules/';
-const importedPlugins = [];
-
-const map = (ruleComposer as { mapReports: MapReports }).mapReports;
-
-// delete metadata fixable property
-const disableMeta = (rule: Rule.RuleModule): Rule.RuleModule => {
-  if (rule.meta?.fixable) {
-    delete rule.meta.fixable;
-  }
-  return rule;
-};
-
-// delete map reports fix method
-const disableFix = (rule: Rule.RuleModule): Rule.RuleModule => {
-  const disableReports = map(rule, (problem) => {
-    delete problem.fix;
-    return problem;
-  });
-  return disableMeta(disableReports);
-};
-
-// handle name conversion
-const convertPluginId = (pluginId: string): string => {
-  return pluginId.includes('@')
-    ? // `@angular-eslint/eslint-plugin` -> `@angular-eslint`
-      // `@angular-eslint/eslint-plugin-template` -> `@angular-eslint/template`
-      pluginId.replace(/eslint-plugin(-|)/u, '').replace(/\/$/, '')
-    : // `eslint-plugin-react` -> `react`
-      pluginId.replace(/^eslint-plugin-/u, '');
-};
-
-// // import eslint rules
-const eslintRules = fs
-  .readdirSync(path.join(dirname, nodeModules, 'eslint/lib/rules'))
-  .filter((rule) => rule.endsWith('.js') && !rule.includes('index'));
-
-for (const rule of eslintRules) {
-  const rulePath = path.posix.join(
-    dirname,
-    nodeModules,
-    'eslint/lib/rules',
-    rule,
-  );
-  const importedRule = require(rulePath);
-  const ruleName = rule.replace('.js', '');
-  disabledRules[ruleName] = disableFix(_.cloneDeep(importedRule));
-}
-
-// read eslint plugins
-const eslintPlugins = fs
-  .readdirSync(path.join(dirname, nodeModules))
-  .filter(
-    (plugin) =>
-      (plugin.startsWith('eslint-plugin') || plugin.startsWith('@')) &&
-      !plugin.startsWith('@types') &&
-      plugin !== 'eslint-plugin-disable-autofix' &&
-      plugin !== '@eslint',
-  );
-
-// import eslint plugins
-for (const plugin of eslintPlugins) {
-  if (plugin.includes('@')) {
-    const pluginDirectories = fs
-      .readdirSync(path.join(dirname, nodeModules, plugin))
-      .filter((read) => read.startsWith('eslint-plugin'));
-    for (const pluginDirectory of pluginDirectories) {
-      const scopedPlugin = path.posix.join(plugin, pluginDirectory);
-      const importedPlugin = require(scopedPlugin) as EslintPlugin;
-      importedPlugin.id = scopedPlugin.replace(
-        path.join(dirname, nodeModules),
-        '',
-      );
-      importedPlugins.push(importedPlugin);
+async function getCoreRulesWithoutFix(
+  eslintCorePath: string,
+): Promise<Record<string, Rule>> {
+  const noFixRules: Awaited<ReturnType<typeof getCoreRulesWithoutFix>> = {};
+  const eslintCoreRulesPath = path.join(eslintCorePath, 'lib/rules');
+  const ruleFileExtension = '.js';
+  const rulesDirEntNames = await fs.readdir(eslintCoreRulesPath);
+  for (const dirEntName of rulesDirEntNames) {
+    const isRuleFilename =
+      dirEntName.endsWith(ruleFileExtension) &&
+      dirEntName !== `index${ruleFileExtension}`;
+    if (!isRuleFilename) {
+      continue;
     }
+    const rulePath = path.join(eslintCoreRulesPath, dirEntName);
+    /* This unsound type assertion below is justified by
+        (1) runtime tests that demonstrate the subject value serving in
+        the role of the asserted type without error
+        (2) the onerousness and negative impact to code readability
+        that would come from mapping the subject value into a new value
+        of the asserted type
+        */
+    const { default: rule } = (await import(rulePath)) as {
+      default: Rule;
+    };
+    const ruleId = dirEntName.replace(ruleFileExtension, '');
+    noFixRules[ruleId] = toRuleWithoutFix(rule);
+  }
+  return noFixRules;
+}
+
+async function getDisableAutofixPlugin(): Promise<ESLint.Plugin> {
+  return {
+    meta: {
+      name: 'eslint-plugin-disable-autofix',
+      version: 'custom ESM conversion',
+    },
+    rules: await getDisableAutofixPluginRules(),
+  };
+}
+
+async function getDisableAutofixPluginRules(): Promise<Record<string, Rule>> {
+  let noFixRules: Record<string, Rule> = {};
+  const nodeModulesPath = path.join(appRootPath.toString(), 'node_modules');
+  const nodeModulesDirEntNames = await fs.readdir(nodeModulesPath, {
+    withFileTypes: true,
+  });
+  for (const dirEnt of nodeModulesDirEntNames) {
+    if (dirEnt.isFile()) {
+      continue;
+    }
+    const isExcluded = dirEnt.name === '@types';
+    if (isExcluded) {
+      continue;
+    }
+    const isForEslintCore = dirEnt.name === 'eslint';
+    if (isForEslintCore) {
+      const eslintCorePath = path.join(dirEnt.parentPath, dirEnt.name);
+      noFixRules = {
+        ...noFixRules,
+        ...(await getCoreRulesWithoutFix(eslintCorePath)),
+      };
+      continue;
+    }
+    if (isFsObjNameForPluginDir(dirEnt)) {
+      noFixRules = {
+        ...noFixRules,
+        ...(await getUnscopedPluginRulesWithoutFix(dirEnt.name)),
+      };
+      continue;
+    }
+    const isScoped = dirEnt.name.startsWith('@');
+    if (isScoped) {
+      noFixRules = {
+        ...noFixRules,
+        ...(await getScopedPluginRulesWithoutFix(nodeModulesPath, dirEnt.name)),
+      };
+    }
+  }
+  return noFixRules;
+}
+
+function getPluginFromPluginModule(pluginModule: RulePluginModule): RulePlugin {
+  let plugin: RulePlugin;
+  if ('default' in pluginModule) {
+    plugin =
+      'plugin' in pluginModule.default
+        ? pluginModule.default.plugin
+        : pluginModule.default;
   } else {
-    const imported = require(plugin) as EslintPlugin;
-    imported.id = plugin;
-    importedPlugins.push(imported);
+    plugin = pluginModule;
   }
+  return plugin;
 }
 
-// disable plugin rules
-for (const plugin of importedPlugins) {
-  const pluginRules = plugin.rules || {};
-  const pluginId = plugin.id || '';
-  const pluginName = convertPluginId(pluginId);
-  for (const ruleId of Object.keys(pluginRules)) {
-    disabledRules[`${pluginName}/${ruleId}`] = disableFix(
-      _.cloneDeep(pluginRules[ruleId]),
+function getPluginRulesWithoutFix(
+  plugin: RulePlugin,
+  pluginName: string,
+): Record<string, Rule> {
+  return Object.fromEntries(
+    Object.entries(plugin.rules ?? {}).map(([ruleId, rule]) => [
+      `${pluginName}/${ruleId}`,
+      toRuleWithoutFix(rule),
+    ]),
+  );
+}
+
+async function getScopedPluginRulesWithoutFix(
+  nodeModulesPath: string,
+  nodeModuleName: string,
+): Promise<Record<string, Rule>> {
+  let noFixRules: Awaited<ReturnType<typeof getScopedPluginRulesWithoutFix>> =
+    {};
+  const nodeModulesDirEnts = await fs.readdir(
+    path.join(nodeModulesPath, nodeModuleName),
+    { withFileTypes: true },
+  );
+  for (const dirEnt of nodeModulesDirEnts) {
+    if (dirEnt.isFile() || !isFsObjNameForPluginDir(dirEnt)) {
+      continue;
+    }
+    const pluginSpecifier = path.posix.join(nodeModuleName, dirEnt.name);
+    /* This unsound type assertion is justified by
+        (1) runtime tests that demonstrate the subject value serving in
+        the role of the asserted type without error
+        (2) the onerousness and negative impact to code readability
+        that would come from mapping the subject value into a new value
+        of the asserted type
+        */
+    const pluginModule = (await import(pluginSpecifier)) as RulePluginModule;
+    const plugin = getPluginFromPluginModule(pluginModule);
+    const pluginName = pluginSpecifier.replace(
+      /(?:\/eslint-plugin$)|(?:eslint-plugin-)/u,
+      '',
     );
+    noFixRules = {
+      ...noFixRules,
+      ...getPluginRulesWithoutFix(plugin, pluginName),
+    };
   }
+  return noFixRules;
 }
 
-const plugin = {
-  meta: {
-    name: 'eslint-plugin-disable-autofix',
-    version: '4.3.0',
-  },
-  configs: {},
-  rules: disabledRules,
-  processors: {},
-};
+async function getUnscopedPluginRulesWithoutFix(
+  pluginSpecifier: string,
+): Promise<Record<string, Rule>> {
+  /* This unsound type assertion is justified by
+    (1) runtime tests that demonstrate the subject value serving in
+    the role of the asserted type without error
+    (2) the onerousness and negative impact to code readability
+    that would come from mapping the subject value into a new value
+    of the asserted type
+    */
+  const pluginModule = (await import(pluginSpecifier)) as RulePluginModule;
+  const plugin = getPluginFromPluginModule(pluginModule);
+  const pluginName = pluginSpecifier.replace(/^eslint-plugin-/u, '');
+  return getPluginRulesWithoutFix(plugin, pluginName);
+}
 
-export default plugin;
+function isFsObjNameForPluginDir(dirEnt: Dirent): boolean {
+  return dirEnt.name.startsWith('eslint-plugin');
+}
+
+function toRuleWithoutFix(rule: Rule): Rule {
+  return toRuleWithoutFixMetadata(toRuleWithoutProblemFix(rule));
+}
+
+function toRuleWithoutFixMetadata(rule: Rule): Rule {
+  return {
+    ...rule,
+    meta: {
+      ...rule.meta,
+      fixable: undefined,
+    },
+  };
+}
+
+function toRuleWithoutProblemFix(rule: Rule): Rule {
+  // See notes in eslint-rule-composer.d.ts.
+  const ruleWithoutProblemFixButWithExtraneousSchema =
+    eslintRuleComposer.mapReports(rule, (problem) => ({
+      ...problem,
+      fix: undefined,
+    }));
+  const ruleWithoutProblemFix: Omit<
+    typeof ruleWithoutProblemFixButWithExtraneousSchema,
+    'schema'
+  > &
+    Partial<
+      Pick<typeof ruleWithoutProblemFixButWithExtraneousSchema, 'schema'>
+    > = {
+    ...ruleWithoutProblemFixButWithExtraneousSchema,
+  };
+  delete ruleWithoutProblemFix.schema;
+  // Narrowing type assertion justified by statements above.
+  return ruleWithoutProblemFix as ReturnType<typeof toRuleWithoutProblemFix>;
+}
+
+export default await getDisableAutofixPlugin();

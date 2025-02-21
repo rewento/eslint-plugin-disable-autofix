@@ -1,10 +1,8 @@
 {
   "compilerOptions": {
-    "lib": [
-      "es6"
-    ],
+    "lib": ["es6"],
     "moduleResolution": "Node",
-    "module": "CommonJS",
+    "module": "ES2015",
     "target": "es6",
     "sourceMap": false,
     "allowJs": true,
@@ -20,19 +18,10 @@
     "preserveConstEnums": true,
     "outDir": "./dist",
     "paths": {
-      "./*.ts": [
-        "./*"
-      ]
+      "./*.ts": ["./*"]
     }
   },
-  "files": [
-    "./src/index.ts"
-  ],
-  "include": [
-    "./index.d.ts"
-  ],
-  "exclude": [
-    "node_modules",
-    "dist"
-  ]
+  "files": ["./src/index.ts"],
+  "include": ["./index.d.ts"],
+  "exclude": ["node_modules", "dist"]
 }

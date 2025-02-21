@@ -1,4 +1,5 @@
 import { ESLint } from 'eslint';
+import eslintPluginDisableAutofix from 'eslint-plugin-disable-autofix';
 
 const eslint = async (text: string, config: ESLint.ConfigData) => {
   try {
@@ -7,7 +8,7 @@ const eslint = async (text: string, config: ESLint.ConfigData) => {
       overrideConfig: config,
       useEslintrc: false,
       plugins: {
-        'eslint-plugin-disable-autofix': require('eslint-plugin-disable-autofix') as ESLint.Plugin,
+        'eslint-plugin-disable-autofix': eslintPluginDisableAutofix,
       },
     };
 

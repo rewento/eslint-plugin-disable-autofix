@@ -1,8 +1,6 @@
 {
   "compilerOptions": {
-    "lib": [
-      "es6"
-    ],
+    "lib": ["es6"],
     "moduleResolution": "Node",
     "module": "ESNext",
     "target": "es6",
@@ -18,23 +16,11 @@
     "removeComments": true,
     "preserveConstEnums": true,
     "outDir": "./dist",
-    "types": [
-      "jest"
-    ],
+    "types": ["jest"],
     "paths": {
-      "./*.ts": [
-        "./*"
-      ]
+      "./*.ts": ["./*"]
     }
   },
-  "include": [
-    "index.d.ts",
-    "tests/**/*.ts",
-    "src/**/*.ts",
-    "jest.config.*"
-  ],
-  "exclude": [
-    "node_modules",
-    "dist"
-  ]
+  "include": ["index.d.ts", "tests/**/*.ts", "src/**/*.ts", "jest.config.*"],
+  "exclude": ["node_modules", "dist"]
 }
