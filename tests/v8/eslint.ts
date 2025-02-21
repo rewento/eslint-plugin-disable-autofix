@@ -5,6 +5,7 @@ const eslint = async (text: string, config: ESLint.ConfigData) => {
   try {
     const options: ESLint.Options = {
       fix: true,
+      // @ts-ignore - To do - Revise this test code to satisfy the TypeScript compiler that `config` is the right type.
       overrideConfig: config,
       useEslintrc: false,
       plugins: {
