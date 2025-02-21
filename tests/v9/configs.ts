@@ -2,8 +2,6 @@ import babelPlugin from '@babel/eslint-plugin';
 import type { Linter } from 'eslint';
 import eslintPluginUnicorn from 'eslint-plugin-unicorn';
 
-import disableAutofix from 'eslint-plugin-disable-autofix';
-
 const baseConfig = {
   languageOptions: {
     ecmaVersion: 2024,
@@ -21,7 +19,9 @@ export const builtin = {
   } as Linter.FlatConfig,
   disable: {
     ...baseConfig,
-    plugins: { 'disable-autofix': disableAutofix },
+    plugins: {
+      'disable-autofix': await import('eslint-plugin-disable-autofix'),
+    },
     rules: {
       'prefer-const': 'off',
       'disable-autofix/prefer-const': 'warn',

@@ -1,9 +1,7 @@
 {
   "compilerOptions": {
-    "lib": ["es6"],
-    "moduleResolution": "Node",
-    "module": "ESNext",
-    "target": "es6",
+    "lib": ["ES2022"],
+    "module": "NodeNext",
     "sourceMap": false,
     "allowJs": true,
     "strict": true,
@@ -11,7 +9,7 @@
     "allowSyntheticDefaultImports": true,
     "skipLibCheck": false,
     "forceConsistentCasingInFileNames": true,
-    "noEmit": false,
+    "noEmit": true,
     "noImplicitAny": true,
     "removeComments": true,
     "preserveConstEnums": true,
@@ -21,6 +19,18 @@
       "./*.ts": ["./*"]
     }
   },
-  "include": ["index.d.ts", "tests/**/*.ts", "src/**/*.ts", "jest.config.*"],
+  "include": [
+    "index.d.ts",
+    "tests/**/*.ts",
+    "src/**/*.ts",
+    "jest.config.*",
+    "tests/v8/eslint.ts",
+    "tests/v8/configs.ts",
+    "tests/v9/configs.ts",
+    "tests/v8/rule.test.ts",
+    "tests/v9/eslint.ts",
+    "tests/v9/rule.test.ts",
+    "src/index.mts"
+  ],
   "exclude": ["node_modules", "dist"]
 }

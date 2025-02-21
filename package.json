@@ -56,6 +56,5 @@
   },
   "stylelint": {
     "extends": "@mikey-pro/stylelint-config"
-  },
-  "type": "module"
+  }
 }
